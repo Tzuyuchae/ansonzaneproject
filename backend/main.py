@@ -25,6 +25,9 @@ from __future__ import annotations
 import os
 import sqlite3
 from typing import List, Optional, Any
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+from fastapi import Request
 
 from fastapi import FastAPI, HTTPException, status, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -146,6 +149,22 @@ def _get_db_path() -> str:
     """Return the absolute path to the SQLite database."""
     base_dir = os.path.dirname(os.path.abspath(__file__))
     return os.path.join(base_dir, "db", "EventPlannerDB.db")
+
+
+# ---------------------------------------------------------------------------
+# Static files (frontend) serving
+# ---------------------------------------------------------------------------
+def _get_dist_path() -> str:
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "dist")
+
+_DIST_DIR = os.path.normpath(_get_dist_path())
+print(f"Serving frontend from: {_DIST_DIR}")
+if os.path.isdir(os.path.join(_DIST_DIR, "assets")):
+    app.mount(
+        "/assets",
+        StaticFiles(directory=os.path.join(_DIST_DIR, "assets")),
+        name="assets",
+    )
 
 
 def _insert_categories(event_id: int, categories: List[str]) -> None:
@@ -399,9 +418,22 @@ def search_events(
 
 
 # ---------------------------------------------------------------------------
-# Health check endpoint
+# Health check and SPA serving endpoints
 # ---------------------------------------------------------------------------
-@app.get("/")
-def root() -> dict[str, str]:
-    """Simple endpoint for load balancers and monitoring."""
+@app.get("/api/health")
+def health_check() -> dict[str, str]:
     return {"message": "Event Browsing API is running"}
+
+@app.get("/", include_in_schema=False)
+async def serve_spa(request: Request):
+    index_file = os.path.join(_DIST_DIR, "index.html")
+    if os.path.isfile(index_file):
+        return FileResponse(index_file)
+    return health_check()
+
+@app.get("/{full_path:path}", include_in_schema=False)
+def spa_fallback(full_path: str):
+    index_file = os.path.join(_DIST_DIR, "index.html")
+    if os.path.isfile(index_file):
+        return FileResponse(index_file)
+    raise HTTPException(status_code=404, detail="Not found")
