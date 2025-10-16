@@ -1,6 +1,7 @@
 import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { Navbar } from './components/Navbar';
+import RequireAuth from './context/RequireAuth';
 
 // pages
 import DefaultPage from './pages/DefaultPage';

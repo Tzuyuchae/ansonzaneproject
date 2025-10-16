@@ -33,15 +33,15 @@ from fastapi import FastAPI, HTTPException, status, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from .events import create as events_create
-from .events import read as events_read
-from .events import update as events_update
-from .events import soft_delete as events_soft_delete
-from .events import hard_delete as events_hard_delete
-from .rsvp import rsvp as rsvp_log
-from .liking_log import liking_log
-from .searching_logic import searching_logic
-from .UserAccounts import userAccount
+from events import create as events_create
+from events import read as events_read
+from events import update as events_update
+from events import soft_delete as events_soft_delete
+from events import hard_delete as events_hard_delete
+from rsvp import rsvp as rsvp_log
+from liking_log import liking_log
+from searching_logic import searching_logic
+from UserAccounts import userAccount
 
 
 

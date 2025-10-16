@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useEvents } from '../context/EventsContext';
 
 const SignInPage: React.FC = () => {
   const [email, setEmail] = useState('');
@@ -8,13 +9,17 @@ const SignInPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
   const { login } = useAuth();
+  const { setCurrentUser } = useEvents();
+  const location = useLocation();
+  const from = (location.state as any)?.from?.pathname || '/home';
+  const API_BASE_URL: string = (import.meta as any).env?.VITE_API_BASE_URL ?? 'http://localhost:8000';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
 
     try {
-      const res = await fetch('http://127.0.0.1:8000/login', {
+      const res = await fetch(`${API_BASE_URL}/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
@@ -27,16 +32,17 @@ const SignInPage: React.FC = () => {
 
       const data = await res.json();
 
-      // Backend only returns email + password? Use email as name, and assign an ID if missing
+      const payload = data.user ?? data;
       const user = {
-        id: data.id ?? '0',
-        name: data.name ?? data.email ?? 'User',
-        email: data.email,
-        role: data.role ?? 'Student',
+        id: String(payload.id ?? payload.accountID ?? '0'),
+        name: payload.name ?? payload.email?.split('@')[0] ?? 'User',
+        email: payload.email,
+        role: payload.role ?? payload.accountType ?? 'Student',
       };
 
       login(user);
-      navigate('/home');
+      setCurrentUser?.({ id: Number(user.id) });
+      navigate(from, { replace: true });
     } catch (err: any) {
       setError(err.message || 'An error occurred during login');
     }

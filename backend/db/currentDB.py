@@ -62,7 +62,7 @@ CREATE TABLE accounts (
     password TEXT NOT NULL,
     isVerified BOOLEAN DEFAULT 0,
     verificationCode TEXT,
-    verificationExpiry DATETIME
+    verificationExpiry INTEGER
 );
 
 

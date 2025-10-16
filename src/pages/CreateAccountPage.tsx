@@ -1,47 +1,48 @@
 import React, { useEffect, useState } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 
-export interface CreateAccountValues {
-  email: string;
-  password: string;
-}
-
-export interface CreateAccountProps {
-  onSuccess?: (values: CreateAccountValues) => void;
-  onCancel?: () => void;
-  className?: string;
-}
-
-/**
- * CreateAccount
- * Minimal, self-contained signup form for Bear ID accounts.
- * Hook up to your AuthContext/API in the onSubmit handler.
- */
+const API_BASE_URL: string = (import.meta as any).env?.VITE_API_BASE_URL ?? 'http://localhost:8000';
 const ALLOWED_DOMAINS = ['bears.unco.edu', 'unco.edu'];
 
 const sendVerification = async (email: string, password: string) => {
   const accountID = email.split('@')[0];
   const accountType = email.includes('bears') ? 'Student' : 'Faculty';
-
-  const res = await fetch('https://cs350unco.com/register', {
+  const res = await fetch(`${API_BASE_URL}/register`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      accountID,
-      accountType,
-      email,
-      password,
-    }),
+    body: JSON.stringify({ accountID, accountType, email, password }),
   });
+  if (!res.ok) throw new Error('Failed to register user.');
+};
 
+const verifyAccount = async (email: string, code: string) => {
+  const accountID = email.split('@')[0];
+  const res = await fetch(`${API_BASE_URL}/verify`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ accountID, code }),
+  });
   if (!res.ok) {
-    throw new Error('Failed to register user.');
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'Verification failed.');
   }
 };
 
-const CreateAccountForm: React.FC<CreateAccountProps> = ({ onSuccess, onCancel, className = '' }) => {
-  const location = useLocation();
+const Rule: React.FC<{ ok: boolean; text: string }> = ({ ok, text }) => (
+  <li className={`flex items-center text-xs ${ok ? 'text-green-600' : 'text-gray-500'}`}>
+    <svg aria-hidden="true" className="mr-2 h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
+      {ok ? (
+        <path d="M16.7 5.3a1 1 0 0 1 0 1.4l-7.5 7.5a1 1 0 0 1-1.4 0L3.3 9.7a1 1 0 1 1 1.4-1.4l3.1 3.1 6.8-6.8a1 1 0 0 1 1.4 0z" />
+      ) : (
+        <path d="M10 18a8 8 0 1 1 0-16 8 8 0 0 1 0 16Zm-1-5h2v2H9v-2Zm0-8h2v6H9V5Z" />
+      )}
+    </svg>
+    {text}
+  </li>
+);
 
+const CreateAccountForm: React.FC = () => {
+  const location = useLocation();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -50,17 +51,14 @@ const CreateAccountForm: React.FC<CreateAccountProps> = ({ onSuccess, onCancel, 
   const [submitting, setSubmitting] = useState(false);
   const [verificationSent, setVerificationSent] = useState(false);
   const [sendingVerification, setSendingVerification] = useState(false);
-
+  const [code, setCode] = useState('');
+  const [verifying, setVerifying] = useState(false);
   const [emailErr, setEmailErr] = useState<string | null>(null);
   const [passwordErr, setPasswordErr] = useState<string | null>(null);
 
   useEffect(() => {
-    // If navigation provided a freshSignup flag, clear any previous values
-    // and prevent showing prior credentials.
     if ((location.state as any)?.freshSignup) {
-      setEmail('');
-      setPassword('');
-      setConfirm('');
+      setEmail(''); setPassword(''); setConfirm('');
     }
   }, [location.state]);
 
@@ -74,220 +72,179 @@ const CreateAccountForm: React.FC<CreateAccountProps> = ({ onSuccess, onCancel, 
   const isPwValid = Object.values(pwRules).every(Boolean);
 
   const validate = (): string | null => {
-    let formErr: string | null = null;
-
-    // Email
-    if (!email.trim()) {
-      setEmailErr('Email is required.');
-      formErr = formErr || 'Fix errors and try again.';
-    } else if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim())) {
-      setEmailErr('Enter a valid email address.');
-      formErr = formErr || 'Fix errors and try again.';
-    } else {
-      const domain = email.trim().split('@')[1]?.toLowerCase();
-      if (!ALLOWED_DOMAINS.includes(domain)) {
-        setEmailErr('Use your official UNCO Bear email (…@bears.unco.edu).');
-        formErr = formErr || 'Fix errors and try again.';
-      } else {
-        setEmailErr(null);
-      }
+    let err: string | null = null;
+    const trimmed = email.trim();
+    if (!trimmed) { setEmailErr('Email is required.'); err = 'Fix errors.'; }
+    else if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(trimmed)) { setEmailErr('Enter a valid email.'); err = 'Fix errors.'; }
+    else {
+      const domain = trimmed.split('@')[1]?.toLowerCase();
+      if (!ALLOWED_DOMAINS.includes(domain)) { setEmailErr('Use your official UNCO email.'); err = 'Fix errors.'; }
+      else setEmailErr(null);
     }
-
-    // Password
-    if (!isPwValid) {
-      setPasswordErr('Password does not meet requirements.');
-      formErr = formErr || 'Fix errors and try again.';
-    } else {
-      setPasswordErr(null);
-    }
-
-    // Confirm
-    if (confirm !== password) {
-      formErr = formErr || 'Fix errors and try again.';
-    }
-
-    return formErr;
+    if (!isPwValid) { setPasswordErr('Password does not meet requirements.'); err = 'Fix errors.'; }
+    else setPasswordErr(null);
+    if (confirm !== password) err = 'Fix errors.';
+    return err;
   };
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const msg = validate();
-    if (msg) { setError(msg); return; }
-    setError(null);
-    setSubmitting(true);
-    try {
-      // TODO: integrate with AuthContext/API here to create account
-      // Example:
-      // await auth.signUp({ email, password });
-      await new Promise(res => setTimeout(res, 400));
-
-      // Send verification email (now registration)
-      try {
-        await sendVerification(email.trim(), password);
-        setVerificationSent(true);
-        onSuccess?.({ email: email.trim(), password });
-      } catch {
-        setError('Could not send verification email. Please try again.');
-      }
-    } catch (err) {
-      setError('Could not create account. Please try again.');
-    } finally {
-      setSubmitting(false);
-    }
+    if (msg) return setError(msg);
+    setError(null); setSubmitting(true);
+    try { await sendVerification(email.trim(), password); setVerificationSent(true); }
+    catch { setError('Could not send verification email.'); }
+    finally { setSubmitting(false); }
   };
 
   const onResend = async () => {
-  setError(null);
-  setSendingVerification(true);
-  try {
-    await sendVerification(email.trim(), password);
-    setVerificationSent(true);
-  } catch {
-    setError('Could not send verification email. Please try again.');
-  } finally {
-    setSendingVerification(false);
-  }
-};
+    setError(null); setSendingVerification(true);
+    try { await sendVerification(email.trim(), password); setVerificationSent(true); }
+    catch { setError('Could not send verification email.'); }
+    finally { setSendingVerification(false); }
+  };
 
   if (verificationSent) {
     return (
-      <div className={`max-w-md ${className}`}>
-        <h1 className="text-2xl font-semibold mb-4 text-brand-blue">Verify your email</h1>
-        <div className="mb-4 rounded border border-green-300 bg-green-50 p-3 text-green-700">
-          A verification email has been sent to <strong>{email.trim()}</strong>. Please check your UNCO inbox and click the link to activate your account.
-        </div>
+      <div className="w-full max-w-md rounded-xl border border-gray-200 bg-white p-6 shadow-md">
+        <h1 className="mb-1 text-2xl font-semibold text-brand-blue">Verify your email</h1>
+        <p className="mb-4 text-sm text-gray-600">
+          We sent a 6‑digit code to <span className="font-medium text-gray-800">{email}</span>.
+        </p>
         {error && (
-          <div className="mb-4 rounded border border-brand-gold/60 bg-brand-butter p-3 text-brand-blue">{error}</div>
+          <div className="mb-4 rounded-md border border-yellow-300 bg-yellow-50 p-3 text-sm text-yellow-800" role="alert" aria-live="polite">
+            {error}
+          </div>
         )}
-        <div className="flex items-center gap-2">
+        <label htmlFor="code" className="mb-1 block text-sm font-medium text-gray-700">Verification code</label>
+        <input
+          id="code"
+          type="text"
+          inputMode="numeric"
+          maxLength={6}
+          className="mb-3 w-full rounded-md border border-gray-300 px-3 py-2 outline-none focus:ring-2 focus:ring-brand-gold"
+          value={code}
+          onChange={(e) => setCode(e.target.value)}
+        />
+        <div className="flex gap-2">
           <button
             type="button"
-            className="px-4 py-2 rounded-md bg-brand-gold text-brand-blue hover:bg-brand-honeycomb focus:outline-none focus:ring-2 focus:ring-brand-gold"
+            className="inline-flex items-center justify-center rounded-md px-4 py-2 text-white bg-brand-blue hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-brand-gold disabled:opacity-60"
+            disabled={verifying || code.trim().length !== 6}
+            onClick={async () => {
+              try { setVerifying(true); setError(null); await verifyAccount(email.trim(), code.trim()); alert('Account verified.'); }
+              catch (e: any) { setError(e?.message || 'Verification failed.'); }
+              finally { setVerifying(false); }
+            }}
+          >
+            {verifying ? 'Verifying…' : 'Verify'}
+          </button>
+          <button
+            type="button"
+            className="inline-flex items-center justify-center rounded-md px-4 py-2 text-brand-blue bg-brand-gold hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-brand-gold disabled:opacity-60"
             onClick={onResend}
             disabled={sendingVerification}
           >
-            {sendingVerification ? 'Resending…' : 'Resend verification email'}
+            {sendingVerification ? 'Resending…' : 'Resend email'}
           </button>
-          {onCancel && (
-            <button type="button" className="px-4 py-2 rounded-md border border-brand-bluegrey text-brand-blue hover:bg-brand-light focus:outline-none focus:ring-2 focus:ring-brand-gold" onClick={onCancel}>Cancel</button>
-          )}
         </div>
       </div>
     );
   }
 
   return (
-    <form onSubmit={onSubmit} className={`max-w-md ${className}`} noValidate autoComplete="off">
+    <form onSubmit={onSubmit} noValidate className="w-full max-w-md rounded-xl border border-gray-200 bg-white p-6 shadow-md">
+      <div className="mb-5">
+        <h1 className="text-2xl font-semibold text-brand-blue">Create your account</h1>
+        <p className="text-sm text-gray-600">Use your Bear email to sign up.</p>
+      </div>
 
       {error && (
-        <div className="mb-4 rounded border border-brand-gold/60 bg-brand-butter p-3 text-brand-blue">{error}</div>
+        <div className="mb-4 rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800" role="alert" aria-live="polite">
+          {error}
+        </div>
       )}
 
       <div className="mb-4">
-        <label htmlFor="email" className="block text-sm font-medium mb-1 text-brand-bluegrey">Email</label>
+        <label htmlFor="email" className="mb-1 block text-sm font-medium text-gray-700">Email</label>
         <input
           id="email"
-          name="signup-email"
           type="email"
           autoComplete="off"
-          className="w-full rounded border border-brand-bluegrey px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-gold focus:border-brand-gold"
-          placeholder="you@bears.unco.edu or you@unco.edu"
+          className={`w-full rounded-md border px-3 py-2 outline-none focus:ring-2 focus:ring-brand-gold ${emailErr ? 'border-red-400' : 'border-gray-300'}`}
           value={email}
           onChange={(e) => { setEmail(e.target.value); setEmailErr(null); }}
           required
+          aria-invalid={!!emailErr}
         />
         {emailErr && <p className="mt-1 text-xs text-red-600">{emailErr}</p>}
       </div>
 
       <div className="mb-4">
-        <label htmlFor="password" className="block text-sm font-medium mb-1 text-brand-bluegrey">Password</label>
+        <label htmlFor="password" className="mb-1 block text-sm font-medium text-gray-700">Password</label>
         <div className="relative">
           <input
             id="password"
-            name="new-password"
             type={showPwd ? 'text' : 'password'}
             autoComplete="new-password"
-            className="w-full rounded border border-brand-bluegrey px-3 py-2 pr-10 focus:outline-none focus:ring-2 focus:ring-brand-gold focus:border-brand-gold"
-            placeholder="At least 8 characters"
+            className={`w-full rounded-md border px-3 py-2 pr-14 outline-none focus:ring-2 focus:ring-brand-gold ${passwordErr ? 'border-red-400' : 'border-gray-300'}`}
             value={password}
-            onChange={(e) => { setPassword(e.target.value); setPasswordErr(null); if (confirm) {} }}
+            onChange={(e) => { setPassword(e.target.value); setPasswordErr(null); }}
             required
+            aria-invalid={!!passwordErr}
           />
           <button
             type="button"
-            className="absolute right-2 top-1/2 -translate-y-1/2 text-sm text-gray-600 hover:underline"
+            className="absolute right-2 top-1/2 -translate-y-1/2 rounded px-2 py-1 text-xs text-gray-600 hover:bg-gray-100"
             onClick={() => setShowPwd(v => !v)}
             aria-label={showPwd ? 'Hide password' : 'Show password'}
           >
             {showPwd ? 'Hide' : 'Show'}
           </button>
         </div>
-        <ul className="mt-2 text-xs space-y-1">
-          <li className={pwRules.length ? 'text-green-600' : 'text-brand-bluegrey'}>• At least 8 characters</li>
-          <li className={pwRules.upper ? 'text-green-600' : 'text-brand-bluegrey'}>• One uppercase letter</li>
-          <li className={pwRules.lower ? 'text-green-600' : 'text-brand-bluegrey'}>• One lowercase letter</li>
-          <li className={pwRules.digit ? 'text-green-600' : 'text-brand-bluegrey'}>• One number</li>
-          <li className={pwRules.special ? 'text-green-600' : 'text-brand-bluegrey'}>• One symbol (!@#$…)</li>
+
+        <ul className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1">
+          <Rule ok={pwRules.length}  text="At least 8 characters" />
+          <Rule ok={pwRules.upper}   text="One uppercase letter" />
+          <Rule ok={pwRules.lower}   text="One lowercase letter" />
+          <Rule ok={pwRules.digit}   text="One number" />
+          <Rule ok={pwRules.special} text="One symbol" />
         </ul>
         {passwordErr && <p className="mt-1 text-xs text-red-600">{passwordErr}</p>}
       </div>
 
       <div className="mb-6">
-        <label htmlFor="confirm" className="block text-sm font-medium mb-1 text-brand-bluegrey">Confirm password</label>
+        <label htmlFor="confirm" className="mb-1 block text-sm font-medium text-gray-700">Confirm password</label>
         <input
           id="confirm"
-          name="new-password-confirm"
           type={showPwd ? 'text' : 'password'}
           autoComplete="new-password"
-          className="w-full rounded border border-brand-bluegrey px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-gold focus:border-brand-gold"
+          className={`w-full rounded-md border px-3 py-2 outline-none focus:ring-2 focus:ring-brand-gold ${confirm && confirm !== password ? 'border-red-400' : 'border-gray-300'}`}
           value={confirm}
-          onChange={(e) => { setConfirm(e.target.value); }}
+          onChange={(e) => setConfirm(e.target.value)}
           required
+          aria-invalid={confirm !== password && !!confirm}
         />
-        {confirm !== password && confirm && (
-          <p className="mt-1 text-xs text-red-600">Passwords do not match.</p>
-        )}
+        {confirm && confirm !== password && <p className="mt-1 text-xs text-red-600">Passwords do not match.</p>}
       </div>
 
-      <div className="flex items-center gap-2">
-        <button
-          type="submit"
-          className={`px-4 py-2 rounded-md shadow-sm text-sm font-medium ${isPwValid && !emailErr && confirm === password && email.trim() ? 'bg-brand-gold text-brand-blue hover:bg-brand-honeycomb' : 'bg-brand-light text-brand-bluegrey cursor-not-allowed'}`} 
-          disabled={!isPwValid || !!emailErr || confirm !== password || !email.trim() || submitting}
-        >
-          {submitting ? 'Creating…' : 'Create account'}
-        </button>
-        {onCancel && (
-          <button type="button" className="px-4 py-2 rounded-md border border-brand-bluegrey text-brand-blue hover:bg-brand-light focus:outline-none focus:ring-2 focus:ring-brand-gold" onClick={onCancel}>Cancel</button>
-        )}
-      </div>
-
-      <p className="mt-4 text-xs text-brand-bluegrey">
-            By creating an account you agree to the{' '}
-            <a className="font-semibold ml-1" href="https://www.unco.edu/student-affairs/policy/" target="_blank" rel="noopener noreferrer">
-              UNC Guidelines & Policies
-            </a>{' '}
-            and{' '}
-            <a className="font-semibold ml-1" href="https://www.unco.edu/trustees/board-policy-manual.aspx" target="_blank" rel="noopener noreferrer">
-              UNC Board Policy Manual
-            </a>. You also agree to receive emails related to your account and events. You can opt out at any time via your account settings or by clicking the "unsubscribe" link in any email.      
-        </p>
+      <button
+        type="submit"
+        className="inline-flex w-full items-center justify-center rounded-md bg-brand-gold px-4 py-2 font-medium text-brand-blue hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-brand-gold disabled:opacity-60"
+        disabled={!isPwValid || !!emailErr || confirm !== password || !email.trim() || submitting}
+      >
+        {submitting ? 'Creating…' : 'Create account'}
+      </button>
     </form>
   );
 };
 
-const CreateAccountPage: React.FC = () => {
-  return (
-    <section className="bg-gradient-to-b from-brand-blue via-brand-blue to-brand-bluegrey/10 pt-16 pb-12 min-h-screen">
-      <div className="mx-auto max-w-xl px-4">
-        <div className="bg-white rounded-lg border border-brand-light shadow-md p-6">
-          <h1 className="text-3xl font-bold text-brand-blue mb-2">Create Account</h1>
-          <p className="text-sm text-brand-bluegrey mb-4">Use your Bear email to sign up.</p>
-          <CreateAccountForm />
-        </div>
-      </div>
-    </section>
-  );
-};
+const CreateAccountPage: React.FC = () => (
+  <section className="min-h-screen w-full bg-gradient-to-b from-brand-blue via-brand-blue to-brand-blue/10">
+    <div className="mx-auto grid min-h-screen max-w-7xl place-items-center px-4 py-12">
+      <CreateAccountForm />
+    </div>
+  </section>
+);
 
 export default CreateAccountPage;
